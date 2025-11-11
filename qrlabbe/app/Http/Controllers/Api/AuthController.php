@@ -13,31 +13,24 @@ use App\Models\Praktikan;
 
 class AuthController extends Controller
 {
-    /**
-     * Logika Registrasi Praktikan (BARU)
-     */
     public function register(Request $request)
     {
-        // 1. Validasi input
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'npm' => 'required|string|max:20|unique:praktikans',
-            'password' => 'required|string|min:8|confirmed', // butuh 'password_confirmation'
+            'password' => 'required|string|min:3|confirmed', // Sesuai permintaan Anda
         ]);
 
         try {
-            // 2. Gunakan Transaction, agar jika salah satu gagal, semua di-rollback
             $user = DB::transaction(function () use ($request) {
-                // 3. Buat data User
                 $user = User::create([
                     'name' => $request->name,
                     'email' => $request->email,
-                    'password' => Hash::make($request->password),
-                    'role' => 'praktikan', // <-- OTOMATIS JADI PRAKTIKAN
+                    'password' => $request->password, // PERBAIKAN: Plain text
+                    'role' => 'praktikan',
                 ]);
 
-                // 4. Buat data Praktikan yang terhubung
                 $user->praktikan()->create([
                     'npm' => $request->npm,
                 ]);
@@ -45,20 +38,20 @@ class AuthController extends Controller
                 return $user;
             });
 
-            // 5. Langsung loginkan user
             Auth::login($user);
 
-            // 6. Kembalikan data user (plus relasi praktikan)
-            return response()->json($user->load('praktikan'), 201);
+            $freshUser = User::with('praktikan')->find($user->id);
+            
+            return response()->json($freshUser, 201);
 
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Registrasi gagal.', 'error' => $e->getMessage()], 500);
+            return response()->json([
+                'message' => 'Registrasi gagal.', 
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 
-    /**
-     * Logika Login (PINDAHAN)
-     */
     public function login(Request $request)
     {
         $credentials = $request->validate([
@@ -68,7 +61,13 @@ class AuthController extends Controller
 
         if (Auth::attempt($credentials)) {
             $request->session()->regenerate();
-            $user = Auth::user()->load('praktikan'); // 'praktikan' adalah relasi
+            
+            $user = Auth::user();
+
+            if ($user->role === 'praktikan') {
+                $user->load('praktikan');
+            }
+            
             return response()->json($user);
         }
 
@@ -77,9 +76,6 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * Logika Logout (PINDAHAN)
-     */
     public function logout(Request $request)
     {
         Auth::guard('web')->logout();
